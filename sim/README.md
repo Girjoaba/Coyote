@@ -259,6 +259,8 @@ $ sim/vl/build.sh path/to/build_hw path/to/build_vl
 ```
 
 The script takes the source list and the include folders from the xsim project that `make sim` wrote, so both simulators compile the same files.
+Vivado writes that list at the first xsim run. If xsim has not run on the build yet, the script calls Vivado once to write it (about 40 s, no compile); Vivado must then be in `PATH`.
+Verilator cannot compile encrypted Xilinx IP, for example the floating-point operator that Vitis HLS uses. `sim/vl/models/` holds a simulation model per such IP; Verilator takes it when the module is missing.
 It writes `path/to/build_vl/coyote_vl`.
 Set `COYOTE_SIM_BIN` to that binary when running the software; `cThread` then starts it instead of Vivado:
 
