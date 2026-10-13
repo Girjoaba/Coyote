@@ -111,8 +111,8 @@ module tb_user;
 
     // Host
     // This stuff still has to exist even if streams are not enabled for offload and sync purposes
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_DATA_BITS)) axis_host_recv[N_STRM_AXI](.*);
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_DATA_BITS)) axis_host_send[N_STRM_AXI](.*);
+    AXI4SR axis_host_recv[N_STRM_AXI](.*);
+    AXI4SR axis_host_send[N_STRM_AXI](.*);
 
     c_axisr host_recv_drv[N_STRM_AXI];
     c_axisr host_send_drv[N_STRM_AXI];
@@ -218,7 +218,7 @@ module tb_user;
 
     task static env_done();
         fork
-            wait(gen.done.triggered);
+            wait(gen != null && gen.done.triggered);
         join
     endtask
 
