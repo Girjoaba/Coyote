@@ -30,6 +30,11 @@
 #include <stdio.h>
 #include <poll.h>
 
+// Allows linkage for Verilator
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * Opens the file at the provided path for non-blocking reads.
  * Returns an integer file descriptor, or -1 if the file
@@ -102,3 +107,7 @@ void close_file(int fd) {
         perror("Error closing file");
     }
 }
+
+#ifdef __cplusplus
+}
+#endif

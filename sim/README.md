@@ -248,6 +248,26 @@ This switches out the `cThread` implementation that the software code is linked 
 The protocol is the one specified above for the generator and scoreboard.
 If you need verbose output for debugging purposes, put a `#define VERBOSE` into `sim/sw/include/Common.hpp`.
 
+## Running the simulation with Verilator
+The same testbench can run in [Verilator](https://verilator.org) (version 5 or newer) instead of Vivado xsim.
+This needs no Vivado at run time and is faster, but has no waveform dump by default.
+After `make sim` has created the simulation project, build the Verilator binary with:
+
+```bash
+$ sim/vl/build.sh path/to/build_hw path/to/build_vl
+```
+
+The script takes the source list and the include folders from the xsim project that `make sim` wrote, so both simulators compile the same files.
+It writes `path/to/build_vl/coyote_vl`.
+Set `COYOTE_SIM_BIN` to that binary when running the software; `cThread` then starts it instead of Vivado:
+
+```bash
+$ COYOTE_SIM_BIN=path/to/build_vl/coyote_vl COYOTE_SIM_DIR=path/to/build_hw ./test
+```
+
+The output of the binary goes to `<build_dir>/sim/coyote_vl.log`.
+Without `COYOTE_SIM_BIN`, the simulation runs in Vivado as before.
+
 # 3. Python unit testing framework
 
 The documentation of the python unit-testing framework can be found in the unit-test subfolder.
