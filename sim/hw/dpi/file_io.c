@@ -29,8 +29,10 @@
 #include <errno.h>
 #include <stdio.h>
 #include <poll.h>
+#include <stdlib.h>
 
-// Allows linkage for Verilator
+// All DPI-C helpers of the testbench: the mailbox pipes and the environment reader.
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -106,6 +108,26 @@ void close_file(int fd) {
     if (success != 0) {
         perror("Error closing file");
     }
+}
+
+/**
+ * Reads the environment variable `name` as a real number (the mock parameters,
+ * see sim_params.svh). Returns `dflt` when the variable is unset, empty or not a number.
+ */
+double coyote_sim_env_real(const char* name, double dflt) {
+    const char* value = getenv(name);
+    char* end;
+    double result;
+
+    if (value == NULL || *value == '\0') {
+        return dflt;
+    }
+    result = strtod(value, &end);
+    if (end == value || *end != '\0') {
+        fprintf(stderr, "%s=\"%s\" is not a number, using %g\n", name, value, dflt);
+        return dflt;
+    }
+    return result;
 }
 
 #ifdef __cplusplus
