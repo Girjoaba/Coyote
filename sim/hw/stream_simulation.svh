@@ -27,15 +27,16 @@
 import sim_pkg::*;
 
 `include "log.svh"
+`include "sim_params.svh"
 
 /**
  * This class wraps the send and recv drivers of a host or card stream.
  * It also has a reference to the respective memory mock.
  * It waits for read and write requests on the respective request mailboxes and uses the corresponding driver to read or write the data from/to the stream.
  * After a request finishes, it sends an acknowledgement through the acks_mbx mailbox.
+ * The latency of a request and the beat rate come from the mock_params of the mock (shared by its streams).
  */
 class stream_simulation;
-    localparam REQ_DELAY = 50ns;
     localparam AXI_DATA_BYTES = AXI_DATA_BITS / 8;
 
     typedef logic[AXI_DATA_BYTES - 1:0] keep_t;
@@ -52,6 +53,7 @@ class stream_simulation;
 
     mem_t mem;
     scoreboard scb;
+    mock_params params;
 
     function new (
         input int dest, 
@@ -62,7 +64,8 @@ class stream_simulation;
         c_axisr send_drv, 
         c_axisr recv_drv, 
         mem_t mem, 
-        scoreboard scb
+        scoreboard scb,
+        mock_params params
     );
         this.dest = dest;
         this.name = name;
@@ -76,6 +79,7 @@ class stream_simulation;
 
         this.mem = mem;
         this.scb = scb;
+        this.params = params;
     endfunction
 
     task run_write_queue();
@@ -93,6 +97,7 @@ class stream_simulation;
             mem_seg_t segment;
             int keep_bits;
             bit missing_last;
+            realtime ready_at;
 
             // We need this as non-blocking with @(...), otherwise timing might be off if we do a busy wait and we would need to wait an additional cycle
             int success = sq_wr_mbx.try_get(trs);
@@ -102,11 +107,12 @@ class stream_simulation;
             end
 
             // Delay this request a little after its issue time
-            if (trs.req_time + REQ_DELAY - $realtime > 0) begin
-                `DEBUG(("%s[%0d]: Delaying send for: %0t (req_time: %0t, realtime: %0t)", name, dest, trs.req_time + REQ_DELAY - $realtime, trs.req_time, $realtime))
+            ready_at = trs.req_time + params.latency;
+            if (ready_at > $realtime) begin
+                `DEBUG(("%s[%0d]: Delaying send for: %0t (req_time: %0t, realtime: %0t)", name, dest, ready_at - $realtime, trs.req_time, $realtime))
             end
  
-            while (trs.req_time + REQ_DELAY - $realtime > 0)
+            while ($realtime < ready_at)
                 @(recv_drv.axis.cbs);
             
             `DEBUG(("%s[%0d]: Got send: vaddr=%x, len=%0d", name, dest, trs.data.vaddr, trs.data.len))
@@ -121,6 +127,8 @@ class stream_simulation;
             // Go through every 64 byte block
             missing_last = 0;
             for (int current_block = 0; current_block < n_blocks; current_block++) begin
+                while (!params.wr.take())
+                    @(send_drv.axis.cbs);
                 send_drv.recv(recv_data, recv_keep, recv_last, recv_tid);
                 `VERBOSE(("%s[%0d]: Received data from send", name, dest))
                     
@@ -173,6 +181,7 @@ class stream_simulation;
             int n_blocks;
             vaddr_t base_addr;
             byte segment[];
+            realtime ready_at;
             
             // We need this as non-blocking with @(...), otherwise timing might be off if we do a busy wait and we would need to wait an additional cycle
             int success = sq_rd_mbx.try_get(trs);
@@ -182,11 +191,12 @@ class stream_simulation;
             end
 
             // Delay this request a little after its issue time
-            if (trs.req_time + REQ_DELAY - $realtime > 0) begin
-                `DEBUG(("%s[%0d]: Delaying recv for: %0t (req_time: %0t, realtime: %0t)", name, dest, trs.req_time + REQ_DELAY - $realtime, trs.req_time, $realtime))
+            ready_at = trs.req_time + params.latency;
+            if (ready_at > $realtime) begin
+                `DEBUG(("%s[%0d]: Delaying recv for: %0t (req_time: %0t, realtime: %0t)", name, dest, ready_at - $realtime, trs.req_time, $realtime))
             end
             
-            while (trs.req_time + REQ_DELAY - $realtime > 0)
+            while ($realtime < ready_at)
                 @(recv_drv.axis.cbm);
 
             `DEBUG(("%s[%0d]: Got recv: vaddr=%x, len=%0d", name, dest, trs.data.vaddr, trs.data.len))
@@ -216,6 +226,9 @@ class stream_simulation;
                 for (int current_byte = 0; current_byte < AXI_DATA_BYTES; current_byte++) begin
                     data[AXI_DATA_BITS - 1 - ((AXI_DATA_BYTES - 1 - current_byte) * 8)-:8] = segment[offset + current_byte];
                 end
+
+                while (!params.rd.take())
+                    @(recv_drv.axis.cbm);
 
                 `VERBOSE(("%s[%0d]: Sending data to recv", name, dest))
                 recv_drv.send(data, keep, trs.data.last ? last : 0, trs.data.pid);

@@ -8,7 +8,7 @@
 # Run the host program against the binary with:
 #   COYOTE_SIM_BIN=<out dir>/coyote_vl COYOTE_SIM_DIR=<hw build dir> ./test ...
 #
-# Needs Verilator 5 in PATH, and Vivado in PATH when xsim has not run on this build yet (step 0).
+# Needs Verilator 5.052 or newer in PATH, and Vivado in PATH when xsim has not run on this build yet (step 0).
 # JOBS (default 16) sets the parallel compile jobs.
 # The source list and the include folders come from the xsim project that `make sim` wrote,
 # so Verilator compiles the same files as xsim.
@@ -25,6 +25,17 @@ mkdir -p "$2"
 OUT=$(realpath "$2")
 VL=$(realpath "$(dirname "$0")")
 DPI=$(realpath "$VL/../hw/dpi")
+
+# Reported in verilator/verilator#8771, fixed in
+# verilator/verilator#8772); c_meta.svh and sim_params.svh work around it.
+# Raise MIN_VL to the first release that ships the fix, then drop the workarounds.
+MIN_VL=5.052
+command -v verilator > /dev/null || { echo "verilator not found in PATH (needs $MIN_VL or newer)" >&2; exit 1; }
+VL_VER=$(verilator --version | awk '{print $2}')
+if [ "$(printf '%s\n' "$MIN_VL" "$VL_VER" | sort -V | head -n 1)" != "$MIN_VL" ]; then
+    echo "Verilator $VL_VER is too old, needs $MIN_VL or newer (see sim/vl/install_verilator.sh)" >&2
+    exit 1
+fi
 
 XPR=("$HW"/sim/*.xpr)
 if [ ${#XPR[@]} -ne 1 ]; then

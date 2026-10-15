@@ -196,6 +196,18 @@ Writes to host memory are written into the memory segments in the host memory mo
 A memory request may span multiple adjacent memory segments, but requests outside the allocated memory segments fail.
 When the simulation target of the software library invokes an operation on memory that was not mapped with `getMem(...)` or `userMap(...)` before, it emulates the page fault handling of the driver and maps the unmapped page-aligned parts of the requested range.
 
+#### Timing parameters
+Each mock reads environment variables when the simulation starts:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `COYOTE_SIM_<MOCK>_LATENCY_NS` | `50` | Delay in ns between a request and its first data beat; at least one clock cycle |
+| `COYOTE_SIM_<MOCK>_GBPS` | `0` | Data rate per direction in Gbit/s; `0` is one beat per clock cycle (no limit) |
+
+`<MOCK>` is `HOST`, `CARD` or `RDMA`. Both RDMA mocks (remote and local) read the `RDMA` values. The rate limit is a token bucket per direction, shared by all streams of the mock.
+The bucket gains `GBPS / 8 * CLK_PERIOD_NS` bytes per clock cycle (50 B at 100 Gbit/s and 4 ns) and holds at most two beats (128 B).
+A stream takes one 64 B beat when the bucket holds it.
+
 ### Memory Simulation
 For work queue entries from sq_rd and sq_wr the memory simulation basically functions as a multiplexer and generates the mailbox message for the correct stream simulation driver.
 All transactions from sq_rd and sq_wr require confirmation on cq_rd and cq_wr, for this, the respective drivers will return a mailbox message which will be picked up by the memory simulation to create the completion queue entries.
@@ -250,7 +262,7 @@ The protocol is the one specified above for the generator and scoreboard.
 If you need verbose output for debugging purposes, put a `#define VERBOSE` into `sim/sw/include/Common.hpp`.
 
 ## Running the simulation with Verilator
-The same testbench can run in [Verilator](https://verilator.org) (version 5 or newer) instead of Vivado xsim.
+The same testbench can run in [Verilator](https://verilator.org) (5.052 or newer) instead of Vivado xsim.
 This needs no Vivado at run time and is faster, but has no waveform dump by default.
 After `make sim` has created the simulation project, build the Verilator binary with:
 
@@ -258,7 +270,8 @@ After `make sim` has created the simulation project, build the Verilator binary 
 $ sim/vl/build.sh path/to/build_hw path/to/build_vl
 ```
 
-The script takes the source list and the include folders from the xsim project that `make sim` wrote, so both simulators compile the same files.
+The script stops when the Verilator in `PATH` is older than 5.052; `sim/vl/install_verilator.sh` builds a release from source without root (usage in its header).
+It takes the source list and the include folders from the xsim project that `make sim` wrote, so both simulators compile the same files.
 Vivado writes that list at the first xsim run. If xsim has not run on the build yet, the script calls Vivado once to write it (about 40 s, no compile); Vivado must then be in `PATH`.
 Verilator cannot compile encrypted Xilinx IP, for example the floating-point operator that Vitis HLS uses. `sim/vl/models/` holds a simulation model per such IP; Verilator takes it when the module is missing.
 It writes `path/to/build_vl/coyote_vl`.
