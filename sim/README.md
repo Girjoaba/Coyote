@@ -202,10 +202,12 @@ Each mock reads environment variables when the simulation starts:
 |---|---|---|
 | `COYOTE_SIM_<MOCK>_LATENCY_NS` | `50` | Delay in ns between a request and its first data beat; at least one clock cycle |
 | `COYOTE_SIM_<MOCK>_GBPS` | `0` | Data rate per direction in Gbit/s; `0` is one beat per clock cycle (no limit) |
+| `COYOTE_SIM_<MOCK>_MTU` | `0` | Bytes between two `tlast` on the data out of the mock (read responses), a multiple of 64; `0` is one `tlast` per request |
 
 `<MOCK>` is `HOST`, `CARD` or `RDMA`. Both RDMA mocks (remote and local) read the `RDMA` values. The rate limit is a token bucket per direction, shared by all streams of the mock.
 The bucket gains `GBPS / 8 * CLK_PERIOD_NS` bytes per clock cycle (50 B at 100 Gbit/s and 4 ns) and holds at most two beats (128 B).
 A stream takes one 64 B beat when the bucket holds it.
+With an MTU, a read response carries `tlast` on the last beat of every MTU counted from the start of the request. The final beat follows the `last` flag of the request.
 
 ### Memory Simulation
 For work queue entries from sq_rd and sq_wr the memory simulation basically functions as a multiplexer and generates the mailbox message for the correct stream simulation driver.
@@ -262,7 +264,7 @@ If you need verbose output for debugging purposes, put a `#define VERBOSE` into 
 
 ## Running the simulation with Verilator
 The same testbench can run in [Verilator](https://verilator.org) (5.052 or newer) instead of Vivado xsim.
-This needs no Vivado at run time and is faster, but has no waveform dump by default.
+This needs no Vivado at run time and is faster.
 After `make sim` has created the simulation project, build the Verilator binary with:
 
 ```bash
