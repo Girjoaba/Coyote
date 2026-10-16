@@ -34,7 +34,7 @@ import sim_pkg::*;
  * It also has a reference to the respective memory mock.
  * It waits for read and write requests on the respective request mailboxes and uses the corresponding driver to read or write the data from/to the stream.
  * After a request finishes, it sends an acknowledgement through the acks_mbx mailbox.
- * The latency of a request and the beat rate come from the mock_params of the mock (shared by its streams).
+ * The latency of a request, the beat rate and the tlast framing come from the mock_params.
  */
 class stream_simulation;
     localparam AXI_DATA_BYTES = AXI_DATA_BITS / 8;
@@ -96,6 +96,7 @@ class stream_simulation;
             int n_blocks;
             mem_seg_t segment;
             int keep_bits;
+            int n_last;
             bit missing_last;
             realtime ready_at;
 
@@ -126,11 +127,13 @@ class stream_simulation;
 
             // Go through every 64 byte block
             missing_last = 0;
+            n_last = 0;
             for (int current_block = 0; current_block < n_blocks; current_block++) begin
                 while (!params.wr.take())
                     @(send_drv.axis.cbs);
                 send_drv.recv(recv_data, recv_keep, recv_last, recv_tid);
                 `VERBOSE(("%s[%0d]: Received data from send", name, dest))
+                if (recv_last) n_last++;
                     
                 keep_bits = 0;
                 for (int current_byte = 0; current_byte < AXI_DATA_BYTES; current_byte++) begin
@@ -163,13 +166,14 @@ class stream_simulation;
             if (missing_last) begin // Check for one more data beat that is just the last signal
                 send_drv.recv(recv_data, recv_keep, recv_last, recv_tid);
                 `ASSERT(!recv_keep && recv_last, ("%s[%0d]: Stream that has to be terminated by last but is not.", name, dest))
+                n_last++;
             end
 
             ack_trs = new();
             ack_trs.initialize(0, trs);
             `DEBUG(("%s[%0d]: Sending send ack: write, opcode=%d, strm=%d, host=%d, dest=%d, pid=%d, vfid=%d, last=%d", name, dest, ack_trs.opcode, ack_trs.strm, ack_trs.host, ack_trs.dest, ack_trs.pid, ack_trs.vfid, ack_trs.last))
             acks_mbx.put(ack_trs);
-            `DEBUG(("%s[%0d]: Completed send.", name, dest))
+            `DEBUG(("%s[%0d]: Completed send, %0d beats with tlast.", name, dest, n_last))
         end
     endtask
 
@@ -215,6 +219,8 @@ class stream_simulation;
                 keep_t keep = -1;
                 vaddr_t offset;
                 bit last = current_block + 1 == n_blocks;
+                // tlast at every MTU of the request; the final beat follows the request's last flag
+                bit mtu_end = params.mtu != 0 && ((current_block + 1) * AXI_DATA_BYTES) % params.mtu == 0;
 
                 // Compute the keep offset
                 if (last) keep >>= AXI_DATA_BYTES - (length - (current_block * AXI_DATA_BYTES));
@@ -231,7 +237,7 @@ class stream_simulation;
                     @(recv_drv.axis.cbm);
 
                 `VERBOSE(("%s[%0d]: Sending data to recv", name, dest))
-                recv_drv.send(data, keep, trs.data.last ? last : 0, trs.data.pid);
+                recv_drv.send(data, keep, last ? trs.data.last : mtu_end, trs.data.pid);
             end
 
             ack_trs = new();

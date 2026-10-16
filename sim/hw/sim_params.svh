@@ -65,17 +65,19 @@ endclass
 
 /**
  * Timing parameters of one memory mock, read once from the environment:
- * COYOTE_SIM_<KEY>_LATENCY_NS and COYOTE_SIM_<KEY>_GBPS, KEY = HOST, CARD or RDMA.
+ * COYOTE_SIM_<KEY>_LATENCY_NS, COYOTE_SIM_<KEY>_GBPS and COYOTE_SIM_<KEY>_MTU, KEY = HOST, CARD or RDMA.
  * Variables, defaults and the token bucket: sim/README.md, "Timing parameters".
  * Mocks that share a port (the two RDMA mocks) share one object, so they share the buckets.
  */
 class mock_params;
     realtime     latency;
-    token_bucket rd; // data out of the mock (read responses)
-    token_bucket wr; // data into the mock (writes)
+    int          mtu; // bytes between two tlast on data out of the mock; 0 is one tlast per request
+    token_bucket rd;  // data out of the mock (read responses)
+    token_bucket wr;  // data into the mock (writes)
 
     function new(input string key);
         real gbps = coyote_sim_env_real({"COYOTE_SIM_", key, "_GBPS"}, 0.0);
+        real mtu_env = coyote_sim_env_real({"COYOTE_SIM_", key, "_MTU"}, 0.0);
         real bytes_per_cycle;
 
         latency = coyote_sim_env_real({"COYOTE_SIM_", key, "_LATENCY_NS"}, 50.0) * 1ns;
@@ -88,8 +90,15 @@ class mock_params;
         rd = new(bytes_per_cycle);
         wr = new(bytes_per_cycle);
 
-        `DEBUG(("%s: latency %0.0f ns, bandwidth %s", key, latency / 1ns, (gbps == 0) ? "unlimited"
-            : $sformatf("%0g Gbit/s (%0.2f B/cycle)", gbps, bytes_per_cycle)))
+        mtu = $rtoi(mtu_env);
+        if (mtu < 0 || mtu != mtu_env || mtu % (AXI_DATA_BITS / 8) != 0) begin
+            `DEBUG(("COYOTE_SIM_%s_MTU=%0g is not a multiple of %0d B, using 0", key, mtu_env, (AXI_DATA_BITS / 8)))
+            mtu = 0;
+        end
+
+        `DEBUG(("%s: latency %0.0f ns, bandwidth %s, tlast %s", key, latency / 1ns, (gbps == 0) ? "unlimited"
+            : $sformatf("%0g Gbit/s (%0.2f B/cycle)", gbps, bytes_per_cycle),
+            (mtu == 0) ? "per request" : $sformatf("every %0d B", mtu)))
     endfunction
 endclass
 
