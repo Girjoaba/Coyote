@@ -204,11 +204,19 @@ Each mock reads environment variables when the simulation starts:
 | `COYOTE_SIM_<MOCK>_LATENCY_NS` | `50` | Delay in ns between a request and its first data beat; at least one clock cycle |
 | `COYOTE_SIM_<MOCK>_GBPS` | `0` | Data rate per direction in Gbit/s; `0` is one beat per clock cycle (no limit) |
 | `COYOTE_SIM_<MOCK>_MTU` | `0` | Bytes between two `tlast` on the data out of the mock (read responses), a multiple of 64; `0` is one `tlast` per request |
+| `COYOTE_SIM_<MOCK>_JITTER_NS` | `0` | Extra delay in ns of each request, uniform between 0 and this value, on top of the latency |
+| `COYOTE_SIM_<MOCK>_DROP` | `0` | Chance (0 to 1) that one MTU of a transfer is lost and resent; with MTU `0` the unit is the whole transfer |
+| `COYOTE_SIM_<MOCK>_RETRANSMIT_NS` | `10000` | Stall in ns of a stream after a loss |
+| `COYOTE_SIM_SEED` | `1` | Seed of the random draws of all mocks |
 
 `<MOCK>` is `HOST`, `CARD` or `RDMA`. Both RDMA mocks (remote and local) read the `RDMA` values. The rate limit is a token bucket per direction, shared by all streams of the mock.
 The bucket gains `GBPS / 8 * CLK_PERIOD_NS` bytes per clock cycle (50 B at 100 Gbit/s and 4 ns) and holds at most two beats (128 B).
 A stream takes one 64 B beat when the bucket holds it.
-With an MTU, a read response carries `tlast` on the last beat of every MTU counted from the start of the request. The final beat follows the `last` flag of the request.
+With an MTU, responses carry `tlast`.
+The jitter keeps the order within one stream but changes the order across the streams of a mock.
+Assuming reliable transport, dropped data is retransmitted within `RETRANSMIT_NS`.
+Each stream and direction has its own random generator (xorshift32), seeded from `COYOTE_SIM_SEED`, the mock name and the stream index.
+Xsim and Verilator draw the same numbers.
 
 ### Memory Simulation
 For work queue entries from sq_rd and sq_wr the memory simulation basically functions as a multiplexer and generates the mailbox message for the correct stream simulation driver.

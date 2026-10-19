@@ -32,9 +32,8 @@ import sim_pkg::*;
 /**
  * This class wraps the send and recv drivers of a host or card stream.
  * It also has a reference to the respective memory mock.
- * It waits for read and write requests on the respective request mailboxes and uses the corresponding driver to read or write the data from/to the stream.
- * After a request finishes, it sends an acknowledgement through the acks_mbx mailbox.
- * The latency of a request, the beat rate and the tlast framing come from the mock_params.
+ * It waits for read and write requests on the respective mailboxes.
+ * After a request finishes, it sends an acknowledgement.
  */
 class stream_simulation;
     localparam AXI_DATA_BYTES = AXI_DATA_BITS / 8;
@@ -54,6 +53,8 @@ class stream_simulation;
     mem_t mem;
     scoreboard scb;
     mock_params params;
+    sim_rng rd_rng;
+    sim_rng wr_rng;
 
     function new (
         input int dest, 
@@ -80,6 +81,26 @@ class stream_simulation;
         this.mem = mem;
         this.scb = scb;
         this.params = params;
+
+        this.rd_rng = new(params.seed, name, dest, 0);
+        this.wr_rng = new(params.seed, name, dest, 1);
+    endfunction
+
+    // Extra wait of one request, uniform in [0, jitter]
+    function realtime jitter_delay(sim_rng rng);
+        if (params.jitter == 0) return 0;
+        return rng.uniform() * params.jitter;
+    endfunction
+
+    // One draw at the first beat of every MTU (with mtu 0 at the first beat of the transfer); 1 is a loss
+    function bit mtu_lost(sim_rng rng, int block);
+        if (params.drop == 0) return 0;
+        if (params.mtu == 0 ? block != 0 : (block * AXI_DATA_BYTES) % params.mtu != 0) return 0;
+        return rng.uniform() < params.drop;
+    endfunction
+
+    function int mtu_index(int block);
+        return (params.mtu == 0) ? 0 : block * AXI_DATA_BYTES / params.mtu;
     endfunction
 
     task run_write_queue();
@@ -97,8 +118,10 @@ class stream_simulation;
             mem_seg_t segment;
             int keep_bits;
             int n_last;
+            int n_drops;
             bit missing_last;
             realtime ready_at;
+            realtime resume_at;
 
             // We need this as non-blocking with @(...), otherwise timing might be off if we do a busy wait and we would need to wait an additional cycle
             int success = sq_wr_mbx.try_get(trs);
@@ -108,7 +131,7 @@ class stream_simulation;
             end
 
             // Delay this request a little after its issue time
-            ready_at = trs.req_time + params.latency;
+            ready_at = trs.req_time + params.latency + jitter_delay(wr_rng);
             if (ready_at > $realtime) begin
                 `DEBUG(("%s[%0d]: Delaying send for: %0t (req_time: %0t, realtime: %0t)", name, dest, ready_at - $realtime, trs.req_time, $realtime))
             end
@@ -125,10 +148,19 @@ class stream_simulation;
             `ASSERT(mem.is_mapped(base_addr, length), ("%s[%0d]: No segment found to write data to in memory.", name, dest))
             segment = null;
 
-            // Go through every 64 byte block
             missing_last = 0;
             n_last = 0;
+            n_drops = 0;
             for (int current_block = 0; current_block < n_blocks; current_block++) begin
+                // A lost MTU is resent: tready stays low for the retransmission time, then the same data follows
+                if (mtu_lost(wr_rng, current_block)) begin
+                    n_drops++;
+                    `DEBUG(("%s[%0d]: dropped MTU %0d of send at vaddr %x, resend after %0.0f ns", name, dest, mtu_index(current_block), trs.data.vaddr, params.retransmit / 1ns))
+                    resume_at = $realtime + params.retransmit;
+                    while ($realtime < resume_at)
+                        @(send_drv.axis.cbs);
+                end
+
                 while (!params.wr.take())
                     @(send_drv.axis.cbs);
                 send_drv.recv(recv_data, recv_keep, recv_last, recv_tid);
@@ -173,7 +205,7 @@ class stream_simulation;
             ack_trs.initialize(0, trs);
             `DEBUG(("%s[%0d]: Sending send ack: write, opcode=%d, strm=%d, host=%d, dest=%d, pid=%d, vfid=%d, last=%d", name, dest, ack_trs.opcode, ack_trs.strm, ack_trs.host, ack_trs.dest, ack_trs.pid, ack_trs.vfid, ack_trs.last))
             acks_mbx.put(ack_trs);
-            `DEBUG(("%s[%0d]: Completed send, %0d beats with tlast.", name, dest, n_last))
+            `DEBUG(("%s[%0d]: Completed send, %0d beats with tlast, %0d drops.", name, dest, n_last, n_drops))
         end
     endtask
 
@@ -185,8 +217,10 @@ class stream_simulation;
             int n_blocks;
             vaddr_t base_addr;
             byte segment[];
+            int n_drops;
             realtime ready_at;
-            
+            realtime resume_at;
+
             // We need this as non-blocking with @(...), otherwise timing might be off if we do a busy wait and we would need to wait an additional cycle
             int success = sq_rd_mbx.try_get(trs);
             while (!success) begin
@@ -195,7 +229,7 @@ class stream_simulation;
             end
 
             // Delay this request a little after its issue time
-            ready_at = trs.req_time + params.latency;
+            ready_at = trs.req_time + params.latency + jitter_delay(rd_rng);
             if (ready_at > $realtime) begin
                 `DEBUG(("%s[%0d]: Delaying recv for: %0t (req_time: %0t, realtime: %0t)", name, dest, ready_at - $realtime, trs.req_time, $realtime))
             end
@@ -214,6 +248,7 @@ class stream_simulation;
                 `FATAL(("%s[%0d]: No segment found to read data from in memory.", name, dest))
             end
 
+            n_drops = 0;
             for (int current_block = 0; current_block < n_blocks; current_block ++) begin
                 logic[AXI_DATA_BITS - 1:0] data = 0;
                 keep_t keep = -1;
@@ -233,6 +268,15 @@ class stream_simulation;
                     data[AXI_DATA_BITS - 1 - ((AXI_DATA_BYTES - 1 - current_byte) * 8)-:8] = segment[offset + current_byte];
                 end
 
+                // A lost MTU is resent: tvalid stays low for the retransmission time, then the same data follows
+                if (mtu_lost(rd_rng, current_block)) begin
+                    n_drops++;
+                    `DEBUG(("%s[%0d]: dropped MTU %0d of recv at vaddr %x, resend after %0.0f ns", name, dest, mtu_index(current_block), trs.data.vaddr, params.retransmit / 1ns))
+                    resume_at = $realtime + params.retransmit;
+                    while ($realtime < resume_at)
+                        @(recv_drv.axis.cbm);
+                end
+
                 while (!params.rd.take())
                     @(recv_drv.axis.cbm);
 
@@ -244,7 +288,7 @@ class stream_simulation;
             ack_trs.initialize(1, trs);
             `DEBUG(("%s[%0d]: Sending recv ack: read, opcode=%d, strm=%d, host=%d, dest=%d, pid=%d, vfid=%d, last=%d", name, dest, ack_trs.opcode, ack_trs.strm, ack_trs.host, ack_trs.dest, ack_trs.pid, ack_trs.vfid, ack_trs.last))
             acks_mbx.put(ack_trs);
-            `DEBUG(("%s[%0d]: Completed recv.", name, dest))
+            `DEBUG(("%s[%0d]: Completed recv, %0d drops.", name, dest, n_drops))
         end
     endtask
 endclass
