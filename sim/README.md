@@ -239,6 +239,11 @@ can be simulated. Notably, there is no support for:
   there's currently no support for a custom handling of these requests with arbitrary code.
 - Remote reads can be triggered but their output is not assertable (i.e., there is no way to verify that your design is returning the correct data).
 
+In the software simulation target, `cThread::initRDMA` opens no connection.
+The first call reads the file named by the environment variable `COYOTE_SIM_RDMA_IMAGE` and writes it with `RDMA_REMOTE_INIT` to the remote memory at vaddr 0, the remote vaddr of the queue pair.
+Later calls in the same process only set the local buffer of the queue pair, so one `cThread` serves every RDMA stream of the vFPGA.
+`connSync` and `closeConn` do nothing; `invoke` with an `rdmaSg` stays unsupported.
+
 ## Setting up the simulation
 You set up the simulation build folder the same way as you would for synthesis but instead of running `make project`, you run `make sim` which creates the simulation project and all necessary files.
 Thereafter, the simulation can be manually run by opening the simulation project `<build_dir>/sim/<proj_name>.xpr` with Vivado and clicking `Run Simulation` in the GUI.
