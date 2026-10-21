@@ -239,9 +239,12 @@ cThread::cThread(int32_t vfid, pid_t hpid, uint32_t device, std::function<void(i
             std::terminate();
         }
 
+        auto raw_vcd = std::getenv("COYOTE_SIM_VCD");
+        bool dump_vcd = raw_vcd == nullptr || std::string(raw_vcd) != "0";
+
         // Run Vivado simulation in its own thread
-        additional_state->sim_thread = std::thread([&vivado_runner, &return_broadcast] { 
-            auto status = vivado_runner->runSimulation();
+        additional_state->sim_thread = std::thread([&vivado_runner, &return_broadcast, dump_vcd] {
+            auto status = vivado_runner->runSimulation(dump_vcd);
             return_broadcast.broadcast({SIM_THREAD_ID, status});
         });
     }

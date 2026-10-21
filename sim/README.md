@@ -253,7 +253,7 @@ Passing the defines for randomization and the interactive mode can be done with 
 
 # 2. Software Simulation Target
 Coyote offers to compile the software code that by default interacts with the hardware through the cThread against the simulation environment and writes a dump of the waveform to `<build_dir>/sim/sim_dump.vcd`.
-The dump may be opened in any waveform viewer afterwards.
+The dump may be opened in any waveform viewer afterwards. Because the dump makes the simulation considerably slower, you can disable it by setting `COYOTE_SIM_VCD=0`.
 To do this, we need to link against the `CoyoteSimulation` library and set the `COYOTE_SIM_DIR` environment variable when running the binary.
 
 In your `CMakeLists.txt` you should have the following `add_subdirectory` or `find_package`:
