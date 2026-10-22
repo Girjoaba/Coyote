@@ -1,0 +1,27 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+# Build (from anywhere):
+#   apptainer build --fakeroot --build-arg COYOTE=<coyote checkout> --build-arg FROZEN=<frozen dir> \
+#       coyote-sim.sif <coyote checkout>/sim/container/coyote-sim.def
+# Run (the simulation writes pipes and logs under /work/sim, so the image needs a writable overlay):
+#   apptainer run --writable-tmpfs coyote-sim.sif [host program arguments]
+
+%arguments
+    COYOTE=.
+    FROZEN=frozen
+    SW=examples/01_hello_world/sw
+
+%files
+    {{ COYOTE }} /opt/coyote
+    {{ FROZEN }} /opt/frozen
+
+%post
+    /opt/coyote/sim/container/install.sh /opt/coyote /opt/frozen /work /opt/coyote/{{ SW }}
+
+# run.sh defaults WORK and COYOTE to the folders above; PATH is for an interactive shell in the image.
+%environment
+    export PATH=/opt/verilator/bin:$PATH
+
+%runscript
+    exec /opt/coyote/sim/container/run.sh "$@"

@@ -88,7 +88,7 @@ short int try_read_byte_from_file(int fd) {
     } else if (bytes_read == 0) {
         // EOF
         return -1;
-    } else if (bytes_read == -1){
+    } else {
         if (errno == EAGAIN) {
             // File would block
             return -2;

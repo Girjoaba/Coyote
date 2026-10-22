@@ -263,6 +263,19 @@ module tb_user;
     end
 `endif
 
+    // Time limit of the testbench itself: +COYOTE_SIM_MAX_PS=<n> ends the run after n ps.
+    // xsim bounds a run from outside (`run <time>`); a Verilator binary has no such command, so
+    // the Python framework passes this plusarg instead.
+    initial begin
+        longint max_ps;
+        if ($value$plusargs("COYOTE_SIM_MAX_PS=%d", max_ps)) begin
+            #(max_ps * 1ps);
+            `DEBUG(("Time limit of %0d ps reached", max_ps))
+            if (scb != null) scb.close();
+            $finish;
+        end
+    end
+
     initial begin
         // Reset generation
         aresetn = 1'b0;

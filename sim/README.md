@@ -277,7 +277,7 @@ The protocol is the one specified above for the generator and scoreboard.
 If you need verbose output for debugging purposes, put a `#define VERBOSE` into `sim/sw/include/Common.hpp`.
 
 ## Running the simulation with Verilator
-The same testbench can run in [Verilator](https://verilator.org) (5.052 or newer) instead of Vivado xsim.
+The same testbench can run in [Verilator](https://verilator.org) (the release or commit that `sim/vl/verilator.env` pins, or newer) instead of Vivado xsim.
 This needs no Vivado at run time and is faster.
 After `make sim` has created the simulation project, build the Verilator binary with:
 
@@ -285,9 +285,10 @@ After `make sim` has created the simulation project, build the Verilator binary 
 $ sim/vl/build.sh path/to/build_hw path/to/build_vl
 ```
 
-The script stops when the Verilator in `PATH` is older than 5.052; `sim/vl/install_verilator.sh` builds a release from source without root (usage in its header).
+The script stops when the Verilator in `PATH` is older than the pin in `sim/vl/verilator.env` (the file says why); `sim/vl/install_verilator.sh <prefix>` builds the pinned one from source without root, and takes another tag or commit as its first argument (usage in its header).
 It takes the source list and the include folders from the xsim project that `make sim` wrote, so both simulators compile the same files.
 Vivado writes that list at the first xsim run. If xsim has not run on the build yet, the script calls Vivado once to write it (about 40 s, no compile); Vivado must then be in `PATH`.
+The list follows the hierarchy of the top in `<build_hw>/sim/vfpga_top.svh`, so the script calls Vivado again when the top is newer than the list (a Python unit test puts its own top there).
 Verilator cannot compile encrypted Xilinx IP, for example the floating-point operator that Vitis HLS uses. `sim/vl/models/` holds a simulation model per such IP; Verilator takes it when the module is missing.
 It writes `path/to/build_vl/coyote_vl`.
 Set `COYOTE_SIM_BIN` to that binary when running the software; `cThread` then starts it instead of Vivado:
@@ -299,9 +300,12 @@ $ COYOTE_SIM_BIN=path/to/build_vl/coyote_vl COYOTE_SIM_DIR=path/to/build_hw ./te
 The output of the binary goes to `<build_dir>/sim/coyote_vl.log`.
 Without `COYOTE_SIM_BIN`, the simulation runs in Vivado as before.
 
-# 3. Python unit testing framework
+`build.sh` reads `VL_DEFINES`, `VL_MODELS` and `VL_FLAGS` (its header says what each does).
 
-The documentation of the python unit-testing framework can be found in the unit-test subfolder.
+Without Vivado on the machine that runs the simulation: `sim/vl/freeze.sh` stores the file lists and the generated sources of a build, `sim/vl/unfreeze.sh` turns them back into a build folder that `build.sh` takes as is (no Vivado project needed).
+`sim/container/` builds an Apptainer or Docker image from such a folder, with Verilator and the host program of one example ([sim/container/README.md](container/README.md)).
 
-# 4. TODO
-1. Simulating multiple vFPGAs at once
+The script passes `-Wno-ENUMVALUE` and `-Wno-BLKANDNBLK`: `'0` and `'X` on enum signals are common in vFPGA code, and the clocking block outputs of `metaIntf` and `AXI4L` count as blocking drives.
+Verilator rejects two constructs that xsim accepts: `type()` of an interface array element (`type(in[0].tag)`) and `$bits` of a signal of an interface whose parameter has no default. Pass such types and widths as parameters.
+Verilator compiles no VHDL: a project with VHDL sources needs a Verilog model per entity in `VL_MODELS` (the script prints a note when the project has such sources). The Oasis checkout keeps the models of its entities in `hardware/sim_models/` (a SystemVerilog `MehdiFIFO`, `vhsnunzip` through GHDL).
+
