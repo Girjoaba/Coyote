@@ -26,6 +26,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <string>
 #include <malloc.h>
 #include <atomic>
@@ -214,6 +215,8 @@ cThread::cThread(int32_t vfid, pid_t hpid, uint32_t device, std::function<void(i
     auto &binary_runner = additional_state->binary_runner;
     auto &return_broadcast = additional_state->return_broadcast;
 
+    // What the simulator thread runs until the simulation ends
+    std::function<int()> run_simulation;
     auto raw_sim_bin = std::getenv("COYOTE_SIM_BIN");
     if (raw_sim_bin != nullptr) {
         // Prebuilt simulation binary (e.g. the Verilator build from sim/vl/build.sh) instead of Vivado
@@ -223,12 +226,7 @@ cThread::cThread(int32_t vfid, pid_t hpid, uint32_t device, std::function<void(i
             FATAL("Could not start the simulation binary " << raw_sim_bin)
             std::terminate();
         }
-
-        // Wait for the simulation binary in its own thread
-        additional_state->sim_thread = std::thread([&binary_runner, &return_broadcast] {
-            auto status = binary_runner->wait();
-            return_broadcast.broadcast({SIM_THREAD_ID, status});
-        });
+        run_simulation = [&binary_runner] { return binary_runner->wait(); };
     } else {
         vivado_runner = std::make_unique<VivadoRunner>();
         status = vivado_runner->openProject(sim_path.c_str());
@@ -241,13 +239,14 @@ cThread::cThread(int32_t vfid, pid_t hpid, uint32_t device, std::function<void(i
 
         auto raw_vcd = std::getenv("COYOTE_SIM_VCD");
         bool dump_vcd = raw_vcd == nullptr || std::string(raw_vcd) != "0";
-
-        // Run Vivado simulation in its own thread
-        additional_state->sim_thread = std::thread([&vivado_runner, &return_broadcast, dump_vcd] {
-            auto status = vivado_runner->runSimulation(dump_vcd);
-            return_broadcast.broadcast({SIM_THREAD_ID, status});
-        });
+        run_simulation = [&vivado_runner, dump_vcd] { return vivado_runner->runSimulation(dump_vcd); };
     }
+
+    // Run the simulator in its own thread
+    additional_state->sim_thread = std::thread([run_simulation, &return_broadcast] {
+        auto status = run_simulation();
+        return_broadcast.broadcast({SIM_THREAD_ID, status});
+    });
 
     output_reader.setTLBPages(&additional_state->tlb_pages, &additional_state->tlb_mtx);
     additional_state->out_thread = std::thread([&output_file_name, &output_reader, &return_broadcast] {

@@ -94,6 +94,15 @@ class BinaryInputWriter {
         fflush(fp);
     }
 
+    void writeMemData(uint8_t op_type, uint64_t vaddr, uint64_t size, void *ptr) {
+        vaddr_size_t vs = {vaddr, size};
+        std::lock_guard<std::mutex> lock(write_mtx);
+        fwrite(&op_type, 1, 1, fp);
+        fwrite(&vs, sizeof(vaddr_size_t), 1, fp);
+        fwrite(ptr, size, 1, fp);
+        fflush(fp);
+    }
+
     FILE *fp;
 
 public:
@@ -141,28 +150,12 @@ public:
     }
 
     void writeMem(uint64_t vaddr, uint64_t size, void *ptr) {
-        uint8_t op_type = MEM_WRITE;
-        vaddr_size_t vs = {vaddr, size};
-        {
-            std::lock_guard<std::mutex> lock(write_mtx);
-            fwrite(&op_type, 1, 1, fp);
-            fwrite(&vs, sizeof(vaddr_size_t), 1, fp);
-            fwrite(ptr, size, 1, fp);
-            fflush(fp);
-        }
+        writeMemData(MEM_WRITE, vaddr, size, ptr);
         DEBUG("Wrote writeMem(" << vaddr << ", " << size << ", ...)")
     }
 
     void rdmaRemoteInit(uint64_t vaddr, uint64_t size, void *ptr) {
-        uint8_t op_type = RDMA_REMOTE_INIT;
-        vaddr_size_t vs = {vaddr, size};
-        {
-            std::lock_guard<std::mutex> lock(write_mtx);
-            fwrite(&op_type, 1, 1, fp);
-            fwrite(&vs, sizeof(vaddr_size_t), 1, fp);
-            fwrite(ptr, size, 1, fp);
-            fflush(fp);
-        }
+        writeMemData(RDMA_REMOTE_INIT, vaddr, size, ptr);
         DEBUG("Wrote rdmaRemoteInit(" << vaddr << ", " << size << ", ...)")
     }
 

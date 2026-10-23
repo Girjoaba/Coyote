@@ -201,7 +201,7 @@ Each mock reads environment variables when the simulation starts:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `COYOTE_SIM_<MOCK>_LATENCY_NS` | `50` | Delay in ns between a request and its first data beat; at least one clock cycle |
+| `COYOTE_SIM_<MOCK>_LATENCY_NS` | `50` | Delay in ns between a request and its first data beat |
 | `COYOTE_SIM_<MOCK>_GBPS` | `0` | Data rate per direction in Gbit/s; `0` is one beat per clock cycle (no limit) |
 | `COYOTE_SIM_<MOCK>_MTU` | `0` | Bytes between two `tlast` on the data out of the mock (read responses), a multiple of 64; `0` is one `tlast` per request |
 | `COYOTE_SIM_<MOCK>_JITTER_NS` | `0` | Extra delay in ns of each request, uniform between 0 and this value, on top of the latency |
@@ -302,10 +302,10 @@ Without `COYOTE_SIM_BIN`, the simulation runs in Vivado as before.
 
 `build.sh` reads `VL_DEFINES`, `VL_MODELS` and `VL_FLAGS` (its header says what each does).
 
-Without Vivado on the machine that runs the simulation: `sim/vl/freeze.sh` stores the file lists and the generated sources of a build, `sim/vl/unfreeze.sh` turns them back into a build folder that `build.sh` takes as is (no Vivado project needed).
+Without Vivado on the machine that runs the simulation: `sim/vl/freeze.sh` stores the file lists and the generated sources of a build, `sim/vl/unfreeze.sh` turns them back into a build folder that `build.sh` takes as is (no Vivado project needed). The `FROZEN` file of the frozen folder records the source commit and the commit of every initialized submodule under the source root, so a CI job can check out the pins the freeze was made from.
 `sim/container/` builds an Apptainer or Docker image from such a folder, with Verilator and the host program of one example ([sim/container/README.md](container/README.md)).
 
-The script passes `-Wno-ENUMVALUE` and `-Wno-BLKANDNBLK`: `'0` and `'X` on enum signals are common in vFPGA code, and the clocking block outputs of `metaIntf` and `AXI4L` count as blocking drives.
+The script passes `-Wno-ENUMVALUE`: `'0` and `'X` on enum signals are common in vFPGA code.
 Verilator rejects two constructs that xsim accepts: `type()` of an interface array element (`type(in[0].tag)`) and `$bits` of a signal of an interface whose parameter has no default. Pass such types and widths as parameters.
 Verilator compiles no VHDL: a project with VHDL sources needs a Verilog model per entity in `VL_MODELS` (the script prints a note when the project has such sources). The Oasis checkout keeps the models of its entities in `hardware/sim_models/` (a SystemVerilog `MehdiFIFO`, `vhsnunzip` through GHDL).
 

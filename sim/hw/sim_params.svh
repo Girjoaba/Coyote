@@ -117,14 +117,13 @@ class mock_params;
     function new(input string key);
         real gbps = coyote_sim_env_real({"COYOTE_SIM_", key, "_GBPS"}, 0.0);
         real mtu_env = coyote_sim_env_real({"COYOTE_SIM_", key, "_MTU"}, 0.0);
-        real jitter_ns = coyote_sim_env_real({"COYOTE_SIM_", key, "_JITTER_NS"}, 0.0);
-        real retransmit_ns = coyote_sim_env_real({"COYOTE_SIM_", key, "_RETRANSMIT_NS"}, 10000.0);
         real bytes_per_cycle;
 
         latency = coyote_sim_env_real({"COYOTE_SIM_", key, "_LATENCY_NS"}, 50.0) * 1ns;
-        // At least one clock: a stream that drives in the time step of its request wake
-        // hits the lost-drive bug of Verilator 5.052 (see c_meta.svh, last_send).
-        if (latency < CLK_PERIOD) latency = CLK_PERIOD;
+        jitter = coyote_sim_env_real({"COYOTE_SIM_", key, "_JITTER_NS"}, 0.0) * 1ns;
+        retransmit = coyote_sim_env_real({"COYOTE_SIM_", key, "_RETRANSMIT_NS"}, 10000.0) * 1ns;
+        if (jitter < 0) jitter = 0;
+        if (retransmit < 0) retransmit = 0;
         if (gbps < 0) gbps = 0;
         bytes_per_cycle = gbps / 8.0 * (CLK_PERIOD / 1ns);
 
@@ -137,25 +136,20 @@ class mock_params;
             mtu = 0;
         end
 
-        if (jitter_ns < 0) jitter_ns = 0;
-        jitter = jitter_ns * 1ns;
-
         drop = coyote_sim_env_real({"COYOTE_SIM_", key, "_DROP"}, 0.0);
         if (drop < 0 || drop > 1) begin
             `DEBUG(("COYOTE_SIM_%s_DROP=%0g is not a probability, using 0", key, drop))
             drop = 0;
         end
-        if (retransmit_ns < 0) retransmit_ns = 0;
-        retransmit = retransmit_ns * 1ns;
 
         seed = $rtoi(coyote_sim_env_real("COYOTE_SIM_SEED", 1.0));
 
         `DEBUG(("%s: latency %0.0f ns, bandwidth %s, tlast %s, %s, %s", key, latency / 1ns, (gbps == 0) ? "unlimited"
             : $sformatf("%0g Gbit/s (%0.2f B/cycle)", gbps, bytes_per_cycle),
             (mtu == 0) ? "per request" : $sformatf("every %0d B", mtu),
-            (jitter == 0) ? "no jitter" : $sformatf("jitter up to %0.0f ns", jitter_ns),
+            (jitter == 0) ? "no jitter" : $sformatf("jitter up to %0.0f ns", jitter / 1ns),
             (drop == 0) ? "no drop" : $sformatf("drop %0g %% per %s, resend after %0.0f ns", drop * 100,
-                (mtu == 0) ? string'("request") : string'("MTU"), retransmit_ns)))
+                (mtu == 0) ? string'("request") : string'("MTU"), retransmit / 1ns)))
     endfunction
 endclass
 

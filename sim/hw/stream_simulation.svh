@@ -103,6 +103,30 @@ class stream_simulation;
         return (params.mtu == 0) ? 0 : block * AXI_DATA_BYTES / params.mtu;
     endfunction
 
+    // One clock of the direction: wr is data into the mock (send_drv), else data out of it (recv_drv)
+    task clock(bit wr);
+        if (wr) @(send_drv.axis.cbs);
+        else @(recv_drv.axis.cbm);
+    endtask
+
+    task wait_until(bit wr, realtime t);
+        while ($realtime < t) clock(wr);
+    endtask
+
+    // Before one beat: a lost MTU is resent, so the stream stalls for the retransmission time and
+    // then carries the same data.
+    task throttle(bit wr, int block, vaddr_t vaddr, ref int n_drops);
+        sim_rng rng = wr ? wr_rng : rd_rng;
+        token_bucket bucket = wr ? params.wr : params.rd;
+        if (mtu_lost(rng, block)) begin
+            n_drops++;
+            `DEBUG(("%s[%0d]: dropped MTU %0d of %s at vaddr %x, resend after %0.0f ns", name, dest, mtu_index(block),
+                wr ? string'("send") : string'("recv"), vaddr, params.retransmit / 1ns))
+            wait_until(wr, $realtime + params.retransmit);
+        end
+        while (!bucket.take()) clock(wr);
+    endtask
+
     task run_write_queue();
         bit[AXI_DATA_BITS - 1:0] recv_data;
         bit[AXI_DATA_BYTES - 1:0] recv_keep;
@@ -121,7 +145,6 @@ class stream_simulation;
             int n_drops;
             bit missing_last;
             realtime ready_at;
-            realtime resume_at;
 
             // We need this as non-blocking with @(...), otherwise timing might be off if we do a busy wait and we would need to wait an additional cycle
             int success = sq_wr_mbx.try_get(trs);
@@ -135,10 +158,8 @@ class stream_simulation;
             if (ready_at > $realtime) begin
                 `DEBUG(("%s[%0d]: Delaying send for: %0t (req_time: %0t, realtime: %0t)", name, dest, ready_at - $realtime, trs.req_time, $realtime))
             end
- 
-            while ($realtime < ready_at)
-                @(recv_drv.axis.cbs);
-            
+            wait_until(1, ready_at);
+
             `DEBUG(("%s[%0d]: Got send: vaddr=%x, len=%0d", name, dest, trs.data.vaddr, trs.data.len))
 
             base_addr = trs.data.vaddr;
@@ -152,17 +173,7 @@ class stream_simulation;
             n_last = 0;
             n_drops = 0;
             for (int current_block = 0; current_block < n_blocks; current_block++) begin
-                // A lost MTU is resent: tready stays low for the retransmission time, then the same data follows
-                if (mtu_lost(wr_rng, current_block)) begin
-                    n_drops++;
-                    `DEBUG(("%s[%0d]: dropped MTU %0d of send at vaddr %x, resend after %0.0f ns", name, dest, mtu_index(current_block), trs.data.vaddr, params.retransmit / 1ns))
-                    resume_at = $realtime + params.retransmit;
-                    while ($realtime < resume_at)
-                        @(send_drv.axis.cbs);
-                end
-
-                while (!params.wr.take())
-                    @(send_drv.axis.cbs);
+                throttle(1, current_block, trs.data.vaddr, n_drops);
                 send_drv.recv(recv_data, recv_keep, recv_last, recv_tid);
                 `VERBOSE(("%s[%0d]: Received data from send", name, dest))
                 if (recv_last) n_last++;
@@ -219,7 +230,6 @@ class stream_simulation;
             byte segment[];
             int n_drops;
             realtime ready_at;
-            realtime resume_at;
 
             // We need this as non-blocking with @(...), otherwise timing might be off if we do a busy wait and we would need to wait an additional cycle
             int success = sq_rd_mbx.try_get(trs);
@@ -233,9 +243,7 @@ class stream_simulation;
             if (ready_at > $realtime) begin
                 `DEBUG(("%s[%0d]: Delaying recv for: %0t (req_time: %0t, realtime: %0t)", name, dest, ready_at - $realtime, trs.req_time, $realtime))
             end
-            
-            while ($realtime < ready_at)
-                @(recv_drv.axis.cbm);
+            wait_until(0, ready_at);
 
             `DEBUG(("%s[%0d]: Got recv: vaddr=%x, len=%0d", name, dest, trs.data.vaddr, trs.data.len))
 
@@ -268,17 +276,7 @@ class stream_simulation;
                     data[AXI_DATA_BITS - 1 - ((AXI_DATA_BYTES - 1 - current_byte) * 8)-:8] = segment[offset + current_byte];
                 end
 
-                // A lost MTU is resent: tvalid stays low for the retransmission time, then the same data follows
-                if (mtu_lost(rd_rng, current_block)) begin
-                    n_drops++;
-                    `DEBUG(("%s[%0d]: dropped MTU %0d of recv at vaddr %x, resend after %0.0f ns", name, dest, mtu_index(current_block), trs.data.vaddr, params.retransmit / 1ns))
-                    resume_at = $realtime + params.retransmit;
-                    while ($realtime < resume_at)
-                        @(recv_drv.axis.cbm);
-                end
-
-                while (!params.rd.take())
-                    @(recv_drv.axis.cbm);
+                throttle(0, current_block, trs.data.vaddr, n_drops);
 
                 `VERBOSE(("%s[%0d]: Sending data to recv", name, dest))
                 recv_drv.send(data, keep, last ? trs.data.last : mtu_end, trs.data.pid);

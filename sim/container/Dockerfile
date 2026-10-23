@@ -11,8 +11,7 @@ COPY sim/container/install.sh /opt/coyote/sim/container/
 COPY sim/vl/install_verilator.sh sim/vl/verilator.env /opt/coyote/sim/vl/
 RUN /opt/coyote/sim/container/install.sh --deps
 COPY . /opt/coyote
-COPY ${FROZEN} /opt/frozen
-RUN /opt/coyote/sim/container/install.sh /opt/coyote /opt/frozen /work /opt/coyote/${SW}
+RUN /opt/coyote/sim/container/install.sh /opt/coyote /opt/coyote/${FROZEN} /work /opt/coyote/${SW}
 # run.sh defaults WORK and COYOTE to these folders; PATH is for an interactive shell in the image.
 ENV PATH=/opt/verilator/bin:$PATH
 ENTRYPOINT ["/opt/coyote/sim/container/run.sh"]

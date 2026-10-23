@@ -48,8 +48,6 @@ class BinaryRunner {
     pid_t pid = -1;
 
 public:
-    BinaryRunner() {}
-
     /**
      * Starts the binary. Returns 0 on success, -1 if the binary is not executable or fork failed.
      */
