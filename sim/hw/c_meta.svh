@@ -33,9 +33,6 @@ class c_meta #(
     // Interface handle;
     virtual metaIntf #(.STYPE(ST)) meta;
 
-    // Time of the last handshake of send(); see the note in send()
-    realtime last_send = -1;
-
     // Constructor
     function new(virtual metaIntf #(.STYPE(ST)) meta);
         this.meta = meta;
@@ -63,17 +60,9 @@ class c_meta #(
         while ($urandom_range(0, 99) < SEND_RAND_THRESHOLD) begin @(meta.cbm); end
     `endif
 
-        // A clocking drive issued in the time step of the previous handshake after a mailbox
-        // wake is lost by Verilator 5.052. One clock of distance avoids it. 
-        // Fixed upstream after 5.052 (verilator/verilator#8486); remove last_send and 
-        // the latency floor in sim_params.svh when https://github.com/verilator/verilator/issues/8771 
-        // is fixed
-        if ($realtime == last_send) @(meta.cbm);
-
         meta.cbm.data  <= data;
         meta.cbm.valid <= 1'b1;
         @(meta.cbm iff (meta.valid == 1'b1 && meta.cbm.ready == 1'b1));
-        last_send = $realtime;
         meta.cbm.data  <= $urandom();
         meta.cbm.valid <= 1'b0;
 

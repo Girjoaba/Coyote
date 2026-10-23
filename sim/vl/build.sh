@@ -18,7 +18,7 @@
 # the script takes those lists and needs no Vivado at all.
 #
 # Environment:
-#   JOBS        parallel compile jobs (default 16)
+#   JOBS        parallel compile jobs (default: the cores of the machine)
 #   VL_DEFINES  preprocessor defines (default "-DEN_RANDOMIZATION -DEN_INTERACTIVE", the C++ cThread flow)
 #   VL_MODELS   extra folders with Verilog models of modules Verilator cannot compile (VHDL, encrypted IP),
 #               space separated; taken only when a module is missing, like sim/vl/models
@@ -37,7 +37,7 @@ OUT=$(realpath "$2")
 VL=$(realpath "$(dirname "$0")")
 DPI=$(realpath "$VL/../hw/dpi")
 
-# The pin. sort -V orders a tag before the master builds after it (v5.052 < v5.052-521 < v5.053).
+# The pin. sort -V orders a tag before the master builds after it (v5.052 < v5.052-N < v5.053).
 . "$VL/verilator.env"
 command -v verilator > /dev/null || { echo "verilator not found in PATH (needs $VERILATOR_MIN or newer, see $VL/verilator.env)" >&2; exit 1; }
 VL_REV=$(verilator_rev)
@@ -122,12 +122,6 @@ fi
 
 # 5. Build. -O1 runs faster than the Verilator default -Os at the same compile time.
 #    -Wno-ENUMVALUE: '0 and 'X assigned to enum signals (tie-offs and resets in vFPGA code).
-#    -Wno-BLKANDNBLK: Verilator master since verilator/verilator#8772 (v5.052-427, so also 6388139f7)
-#    raises this error on a clocking block output that the design drives with <= (metaIntf valid
-#    and data, AXI4L bvalid). The generated clocking drive runs only at the clocking event plus
-#    the skew, and the testbench never issues it on those signals, so the error is a false
-#    positive (V3Delayed counts a fork branch as combinational logic). A pin-bound workaround,
-#    listed with the others in verilator.env.
 #    file_io.c (the pipe reader, DPI-C) has extern "C" guards and compiles as C++.
 #    -y models: simulation models of encrypted Xilinx IP and of VHDL entities, taken only when the module is missing.
 MODEL_DIRS=(-y "$VL/models")
@@ -135,8 +129,8 @@ for d in ${VL_MODELS:-}; do
     MODEL_DIRS+=(-y "$(realpath "$d")")
 done
 # shellcheck disable=SC2086
-if ! verilator --binary --timing -j "${JOBS:-16}" -CFLAGS -O1 \
-        -Wno-fatal -Wno-lint -Wno-style -Wno-ENUMVALUE -Wno-BLKANDNBLK \
+if ! verilator --binary --timing -j "${JOBS:-$(nproc)}" -CFLAGS -O1 \
+        -Wno-fatal -Wno-lint -Wno-style -Wno-ENUMVALUE \
         ${VL_DEFINES:--DEN_RANDOMIZATION -DEN_INTERACTIVE} ${VL_FLAGS:-} \
         "${MODEL_DIRS[@]}" \
         -f "$OUT/incs.f" -f "$OUT/files.f" "$DPI/file_io.c" \

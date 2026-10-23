@@ -38,9 +38,23 @@ defaults:
     shell: bash -ileo pipefail {0}
 
 jobs:
+  # The pinned Verilator once per runner, before the example jobs run their install step in parallel
+  verilator:
+    environment: fpga-synth
+    runs-on: [self-hosted, linux, x64]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Verilator
+      run: |
+        source sim/vl/verilator.env
+        sim/vl/install_verilator.sh $HOME/opt/verilator/$VERILATOR_REF   # does nothing when the prefix holds it
+
   run-01-hello-world:
     environment: fpga-synth
     runs-on: [self-hosted, linux, x64]
+    needs: verilator
 
     steps:
     - uses: actions/checkout@v4
@@ -79,6 +93,7 @@ jobs:
   run-02-hls-vadd:
     environment: fpga-synth
     runs-on: [self-hosted, linux, x64]
+    needs: verilator
 
     steps:
     - uses: actions/checkout@v4
@@ -112,6 +127,7 @@ jobs:
   run-04-user-interrupts:
     environment: fpga-synth
     runs-on: [self-hosted, linux, x64]
+    needs: verilator
 
     steps:
     - uses: actions/checkout@v4
@@ -145,6 +161,7 @@ jobs:
   run-07-perf-fpga:
     environment: fpga-synth
     runs-on: [self-hosted, linux, x64]
+    needs: verilator
 
     steps:
     - uses: actions/checkout@v4

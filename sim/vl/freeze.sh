@@ -10,7 +10,9 @@
 # The frozen folder holds files.f and incs.f with @SRC_DIR@ and @BUILD_DIR@ in place of the two
 # roots, the files Vivado generated under <hw build dir> (lynx_pkg.sv, the user logic wrapper,
 # vfpga_top.svh, IP simulation sources), coyote_test_init.py for the Python framework, and
-# FROZEN with the provenance. sim/vl/unfreeze.sh turns it back into a build folder.
+# FROZEN with the provenance: the source commit and one `submodule: <path> <commit>` line per
+# initialized submodule under <src root>, so a job on another machine can check out the same
+# pins. sim/vl/unfreeze.sh turns it back into a build folder.
 set -euo pipefail
 
 if [ $# -lt 3 ] || [ $# -gt 4 ]; then
@@ -63,6 +65,7 @@ fi
     echo "hw_build: $HW"
     echo "src_root: $SRC"
     echo "src_commit: $(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    git -C "$SRC" submodule foreach --recursive --quiet 'echo "submodule: $displaypath $(git rev-parse HEAD)"' 2>/dev/null || true
     echo "vivado: $(grep -m1 -o 'Vivado v[0-9.]*' "$HW"/vivado.log 2>/dev/null || echo unknown)"
 } > "$FROZEN/FROZEN"
 echo "$FROZEN: $(wc -l < "$FROZEN/files.f") sources, $(find "$FROZEN/build" -type f | wc -l) generated files"

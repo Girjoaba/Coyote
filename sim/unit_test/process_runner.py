@@ -133,6 +133,12 @@ class CompilationInfo:
         # https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation/xelab-xvhdl-and-xvlog-xsim-Command-Options
         return " ".join(f"-d {k}={v}" for k, v in self.defines.items())
 
+    def defines_to_verilator_str(self) -> str:
+        """
+        The defines as the VL_DEFINES of sim/vl/build.sh (verilator -D options).
+        """
+        return " ".join(f"-D{k}={v}" for k, v in self.defines.items())
+
 
 def _load_compile_info(check_file: str) -> CompilationInfo:
     """
@@ -635,7 +641,7 @@ class VerilatorRunner:
 
         _copy_if_changed(vfpga_top_path, SIM_TARGET_V_FPGA_TOP_FILE)
         env = _get_env()
-        env["VL_DEFINES"] = " ".join(f"-D{k}={v}" for k, v in current_info.defines.items())
+        env["VL_DEFINES"] = current_info.defines_to_verilator_str()
         env["VL_FLAGS"] = "--trace" if dump else ""
         env["VL_MODELS"] = os.environ.get("COYOTE_SIM_VL_MODELS", "")
         self.logger.info(f"Building {binary} with VL_DEFINES='{env['VL_DEFINES']}'")
