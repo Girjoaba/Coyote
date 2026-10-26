@@ -32,7 +32,7 @@ done
 
 SUBST="s#$HW#@BUILD_DIR@#g; s#$SRC#@SRC_DIR@#g"
 
-# A path under the build folder (a file, or an include folder) is copied and rewritten; one under the source root is rewritten.
+# A path under the build folder is copied and rewritten.
 place() {
     local p=$1
     case "$p" in
@@ -41,9 +41,17 @@ place() {
             sed "$SUBST" "$p" > "$FROZEN/build/sim/lynx_pkg.sv"
             echo "@BUILD_DIR@/sim/lynx_pkg.sv" ;;
         "$HW"/*)
-            mkdir -p "$FROZEN/build/$(dirname "${p#$HW/}")"
-            cp -r "$p" "$FROZEN/build/${p#$HW/}"
-            echo "@BUILD_DIR@/${p#$HW/}" ;;
+            local rel=${p#$HW/}
+            if [ -d "$p" ]; then
+                # An include folder: only its HDL files, not the xsim project a run may have put there.
+                mkdir -p "$FROZEN/build/$rel"
+                find "$p" -maxdepth 1 -type f \( -name "*.sv" -o -name "*.svh" -o -name "*.v" -o -name "*.vh" \) \
+                    -exec cp -n {} "$FROZEN/build/$rel/" \;
+            else
+                mkdir -p "$FROZEN/build/$(dirname "$rel")"
+                cp "$p" "$FROZEN/build/$rel"
+            fi
+            echo "@BUILD_DIR@/$rel" ;;
         "$SRC"/*)
             echo "@SRC_DIR@/${p#$SRC/}" ;;
         *)
