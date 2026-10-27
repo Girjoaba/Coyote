@@ -1033,7 +1033,7 @@ endmacro()
 
 # Generate build targets
 macro(gen_targets)
-    if(EN_NET)
+    if(EN_NET AND NOT SKIP_XILINX)
         add_subdirectory(${CYT_DIR}/hw/services/network ${CMAKE_BINARY_DIR}/network)
         set(NET_SYNTH_CMD COMMAND make services)
     endif()

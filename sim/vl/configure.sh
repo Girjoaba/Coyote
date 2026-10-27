@@ -8,7 +8,8 @@
 #
 # The steps of `make sim` that need no Vivado:
 #   1. The CMake configure with -DSKIP_XILINX=1: FindCoyoteHW.cmake then accepts a missing Vivado and
-#      Vitis HLS (nothing runs them at configure time). It writes base.tcl, write_hdl.py, cr_sim.tcl and
+#      Vitis HLS and skips the network stack folder (its HLS cores
+#      need Vitis HLS at configure time). It writes base.tcl, write_hdl.py, cr_sim.tcl and
 #      coyote_test/__init__.py from the configuration of the application.
 #   2. write_hdl.py 3 0 0 renders sim/lynx_pkg.sv and sim/user_logic_c0_0.sv (needs python3 with jinja2).
 #   3. The vFPGA folders of configuration 0, region 0 (the limit of cr_sim.tcl as well) come from
