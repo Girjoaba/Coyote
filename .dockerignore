@@ -1,6 +1,7 @@
 # Build context of sim/container/Dockerfile: what no simulation build reads.
 .git
 hw/checkpoints
+docs/
 **/build/
 **/build_*/
 **/__pycache__/
