@@ -302,7 +302,7 @@ Without `COYOTE_SIM_BIN`, the simulation runs in Vivado as before.
 
 `build.sh` reads `VL_DEFINES`, `VL_MODELS` and `VL_FLAGS` (its header says what each does).
 
-Without Vivado: `sim/vl/configure.sh <app hw dir> <build dir> [cmake args]` makes the build folder in place of `make sim`. It configures the application with `-DSKIP_XILINX=1` (no Vivado, no Vitis HLS), renders `lynx_pkg.sv` and the user logic wrapper with `write_hdl.py` (needs `jinja2`), copies `vfpga_top.svh`, and writes `files.f` and `incs.f` from the vFPGA folders. HLS kernels are not supported, and Xilinx IP needs a Verilog model (`sim/vl/models/` holds the floating-point core, the ILA of example 1 and the AXI4-Stream register slice of `axisr_reg`).
+Without Vivado: `sim/vl/configure.sh <app hw dir> <build dir> [cmake args]` makes the build folder in place of `make sim`. It configures the application with `-DSKIP_XILINX=1` (no Vivado, no Vitis HLS, the network stack folder skipped), renders `lynx_pkg.sv` and the user logic wrapper with `write_hdl.py` (needs `jinja2`), copies `vfpga_top.svh`, and writes `files.f` and `incs.f` from the vFPGA folders. HLS kernels are not supported, and Xilinx IP needs a Verilog model (`sim/vl/models/` holds the floating-point core, the ILA of example 1 and the AXI4-Stream register slice of `axisr_reg`).
 `sim/container/` builds an Apptainer or Docker image of one example this way ([sim/container/README.md](container/README.md)).
 
 The script passes `-Wno-ENUMVALUE`: `'0` and `'X` on enum signals are common in vFPGA code.
