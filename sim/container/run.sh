@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the frozen example under Verilator: the host program, then the Python tests of sim/unit_test/examples.
+# Run the example under Verilator: the host program, then the Python tests of sim/unit_test/examples.
 # Usage: run.sh [host program arguments]   (default: -X 1024 -r 1 -s 0)
 set -euo pipefail
 WORK=${WORK:-/work}

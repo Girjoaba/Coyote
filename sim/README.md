@@ -302,8 +302,8 @@ Without `COYOTE_SIM_BIN`, the simulation runs in Vivado as before.
 
 `build.sh` reads `VL_DEFINES`, `VL_MODELS` and `VL_FLAGS` (its header says what each does).
 
-Without Vivado on the machine that runs the simulation: `sim/vl/freeze.sh` stores the file lists and the generated sources of a build, `sim/vl/unfreeze.sh` turns them back into a build folder that `build.sh` takes as is (no Vivado project needed). The `FROZEN` file of the frozen folder records the source commit and the commit of every initialized submodule under the source root, so a CI job can check out the pins the freeze was made from.
-`sim/container/` builds an Apptainer or Docker image from such a folder, with Verilator and the host program of one example ([sim/container/README.md](container/README.md)).
+Without Vivado: `sim/vl/configure.sh <app hw dir> <build dir> [cmake args]` makes the build folder in place of `make sim`. It configures the application with `-DSKIP_XILINX=1` (no Vivado, no Vitis HLS), renders `lynx_pkg.sv` and the user logic wrapper with `write_hdl.py` (needs `jinja2`), copies `vfpga_top.svh`, and writes `files.f` and `incs.f` from the vFPGA folders. HLS kernels are not supported, and Xilinx IP needs a Verilog model (`sim/vl/models/` holds the floating-point core, the ILA of example 1 and the AXI4-Stream register slice of `axisr_reg`).
+`sim/container/` builds an Apptainer or Docker image of one example this way ([sim/container/README.md](container/README.md)).
 
 The script passes `-Wno-ENUMVALUE`: `'0` and `'X` on enum signals are common in vFPGA code.
 Verilator rejects two constructs that xsim accepts: `type()` of an interface array element (`type(in[0].tag)`) and `$bits` of a signal of an interface whose parameter has no default. Pass such types and widths as parameters.

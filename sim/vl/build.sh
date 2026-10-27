@@ -14,7 +14,7 @@
 # so Verilator compiles the same files as xsim. Vivado derives the list from the hierarchy of the
 # top in <hw build dir>/sim/vfpga_top.svh, so step 0 writes it again when the top is newer than
 # the list (a Python unit test puts its own top there).
-# When <hw build dir> holds files.f and incs.f instead of a Vivado project (written by sim/vl/unfreeze.sh),
+# When <hw build dir> holds files.f and incs.f instead of a Vivado project (written by sim/vl/configure.sh),
 # the script takes those lists and needs no Vivado at all.
 #
 # Environment:
@@ -46,7 +46,7 @@ if [ -z "$VL_REV" ] || [ "$(printf '%s\n' "$VERILATOR_MIN" "$VL_REV" | sort -V |
     exit 1
 fi
 
-# Steps 0 to 4: $OUT/files.f and $OUT/incs.f from the xsim project of $HW.
+# Steps 0 to 3: $OUT/files.f and $OUT/incs.f from the xsim project of $HW.
 lists_from_xsim_project() {
     local XPR PRJS PRJ XSIM IP_SRCS VHDL_PRJ
     XPR=("$HW"/sim/*.xpr)
@@ -85,16 +85,11 @@ lists_from_xsim_project() {
     PRJ=${PRJS[0]}
     XSIM=$(dirname "$PRJ")
 
-    # 1. Verilator does not parse `1step`. At the time precision of 1 ps, 1ps is the same value.
-    sed 's/1step/1ps/' "$HW/sim/lynx_pkg.sv" > "$OUT/lynx_pkg.sv"
-
-    # 2. The project sources in xsim order, without glbl.v (Xilinx primitives, xsim only).
-    #    lynx_pkg.sv is taken from the copy of step 1.
+    # 1. The project sources in xsim order, without glbl.v (Xilinx primitives, xsim only).
     grep -oE '"[^"]+\.s?v"' "$PRJ" | tr -d '"' | grep -v 'glbl\.v$' \
-        | (cd "$XSIM" && xargs realpath) \
-        | sed "s#.*/lynx_pkg\.sv\$#$OUT/lynx_pkg.sv#" > "$OUT/files.f"
+        | (cd "$XSIM" && xargs realpath) > "$OUT/files.f"
 
-    # 3. The IP library sources (<ip>/hdl/*.v), which xsim loads precompiled, one copy per file name.
+    # 2. The IP library sources (<ip>/hdl/*.v), which xsim loads precompiled, one copy per file name.
     #    They have `timescale 1ps/1ps and must stay after the 1ns/1ps project sources: Verilator gives
     #    the testbench classes the time unit of the first file.
     IP_SRCS=("$HW"/sim/*.gen/sources_1/ip/*/hdl/*.v)
@@ -102,7 +97,7 @@ lists_from_xsim_project() {
         printf '%s\n' "${IP_SRCS[@]}" | awk -F/ '!seen[$NF]++' >> "$OUT/files.f"
     fi
 
-    # 4. The include folders of the xsim project.
+    # 3. The include folders of the xsim project.
     grep -oE -- '--include "[^"]+"' "$PRJ" | cut -d'"' -f2 | sort -u \
         | (cd "$XSIM" && xargs realpath) | sed 's/^/-I/' > "$OUT/incs.f"
 
@@ -114,11 +109,17 @@ lists_from_xsim_project() {
 }
 
 if [ -f "$HW/files.f" ] && [ -f "$HW/incs.f" ]; then
-    # Frozen lists (sim/vl/unfreeze.sh): absolute paths, the lynx_pkg.sv of step 1 already in place.
+    # Lists of sim/vl/configure.sh: absolute paths.
     cp "$HW/files.f" "$HW/incs.f" "$OUT/"
 else
     lists_from_xsim_project
 fi
+
+# 4. Verilator does not parse `1step`. At the time precision of 1 ps, 1ps is the same value.
+#    The list takes a patched copy of lynx_pkg.sv in place of the generated one.
+LYNX=$(grep -m1 '/lynx_pkg\.sv$' "$OUT/files.f") || { echo "no lynx_pkg.sv in the source list of $HW" >&2; exit 1; }
+sed 's/1step/1ps/' "$LYNX" > "$OUT/lynx_pkg.sv"
+sed -i "s#.*/lynx_pkg\.sv\$#$OUT/lynx_pkg.sv#" "$OUT/files.f"
 
 # 5. Build. -O1 runs faster than the Verilator default -Os at the same compile time.
 #    -Wno-ENUMVALUE: '0 and 'X assigned to enum signals (tie-offs and resets in vFPGA code).
