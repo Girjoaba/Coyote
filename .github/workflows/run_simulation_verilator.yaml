@@ -132,6 +132,13 @@ jobs:
     - name: Build the testbench and the host program
       run: PREFIX=$VERILATOR_PREFIX sim/container/install.sh $PWD examples/$EX/hw $WORK examples/$EX/sw
 
+    # HPF buffers (examples 1, 7, 12) are mmap-ed with MAP_HUGETLB in sim/sw/src/cThread.cpp.
+    - name: Huge pages
+      run: |
+        sudo sysctl -w vm.nr_hugepages=64
+        grep HugePages_Total /proc/meminfo
+        [ "$(cat /proc/sys/vm/nr_hugepages)" -ge 64 ]
+
     - name: Run simulation
       env:
         HOST_ARGS: ${{ matrix.host_args }}
