@@ -302,8 +302,15 @@ Without `COYOTE_SIM_BIN`, the simulation runs in Vivado as before.
 
 `build.sh` reads `VL_DEFINES`, `VL_MODELS` and `VL_FLAGS` (its header says what each does).
 
-Without Vivado: `sim/vl/configure.sh <app hw dir> <build dir> [cmake args]` makes the build folder in place of `make sim`. It configures the application with `-DSKIP_XILINX=1` (no Vivado, no Vitis HLS, the network stack folder skipped), renders `lynx_pkg.sv` and the user logic wrapper with `write_hdl.py` (needs `jinja2`), copies `vfpga_top.svh`, and writes `files.f` and `incs.f` from the vFPGA folders. HLS kernels are not supported, and Xilinx IP needs a Verilog model (`sim/vl/models/` holds the floating-point core, the ILA of example 1 and the AXI4-Stream register slice of `axisr_reg`).
+Without Vivado: `sim/vl/configure.sh <app hw dir> <build dir> [cmake args]` makes the build folder in place of `make sim`. It configures the application with `-DSKIP_XILINX=1` (no Vivado, no Vitis HLS, the network stack folder skipped), renders `lynx_pkg.sv` and the user logic wrapper with `write_hdl.py` (needs `jinja2`), copies `vfpga_top.svh`, and writes `files.f` and `incs.f` from the vFPGA folders. HLS kernels are not supported, and Xilinx IP needs a Verilog model (`sim/vl/models/` holds the floating-point core, the ILAs of examples 1, 4, 7 and 12 and the AXI4-Stream register slice of `axisr_reg`).
+SpinalHDL kernels (a `spinal/` folder in the vFPGA folder, example 12) are supported: the script runs `comp_spinal.tcl` with `tclsh` and adds the Verilog to `files.f`. This needs `sbt` and Java 11 or newer in `PATH`.
 `sim/container/` builds an Apptainer or Docker image of one example this way ([sim/container/README.md](container/README.md)).
+
+CI: `.github/workflows/run_simulation_verilator.yaml` runs examples 1, 4, 7 and 12 this way on a GitHub-hosted runner. Each example runs its host program, and then its Python tests in `sim/unit_test/examples/<example>` when the folder exists. The pinned Verilator is built once and cached; a change of `sim/vl/verilator.env` builds it again.
+To add an example to the job:
+1. Add a model in `sim/vl/models/` for each Xilinx IP that the example instantiates (its `init_ip.tcl` lists them).
+2. Add a `matrix.include` entry with the folder name and the host program arguments.
+3. Optionally, add Python tests in `sim/unit_test/examples/<example>/test_*.py` (see `sim/unit_test/README.md`).
 
 The script passes `-Wno-ENUMVALUE`: `'0` and `'X` on enum signals are common in vFPGA code.
 Verilator rejects two constructs that xsim accepts: `type()` of an interface array element (`type(in[0].tag)`) and `$bits` of a signal of an interface whose parameter has no default. Pass such types and widths as parameters.

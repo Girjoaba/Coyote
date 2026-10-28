@@ -27,9 +27,9 @@
 """Python unit test of example 1 (hello world): the vFPGA adds one to every integer of the host stream.
 
 Run from a hardware build of examples/01_hello_world configured with
--DUNIT_TEST_DIR=<coyote>/sim/unit_test/examples:
+-DUNIT_TEST_DIR=<coyote>/sim/unit_test/examples/01_hello_world:
 
-    PYTHONPATH=<hw build>:<coyote>/sim python3 -m unittest discover -s <coyote>/sim/unit_test/examples
+    PYTHONPATH=<hw build>:<coyote>/sim python3 -m unittest discover -s <coyote>/sim/unit_test/examples/01_hello_world
 
 With COYOTE_SIM_VERILATOR=1 the test runs the Verilator binary of sim/vl/build.sh instead of xsim.
 """
