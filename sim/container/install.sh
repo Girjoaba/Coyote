@@ -19,7 +19,7 @@ install_deps() {
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
     apt-get install -y --no-install-recommends \
-        build-essential cmake git ca-certificates python3 python3-jinja2 \
+        build-essential cmake git ca-certificates python3 python3-jinja2 tcl \
         autoconf flex bison help2man perl ccache libfl2 libfl-dev zlib1g-dev \
         libboost-all-dev
     rm -rf /var/lib/apt/lists/*
@@ -44,7 +44,9 @@ SW=$(realpath "$4")
 [ -x "$PREFIX/bin/verilator" ] || install_deps
 export PATH=$PREFIX/bin:$PATH
 
-"$COYOTE/sim/vl/configure.sh" "$HW" "$WORK" -DFDEV_NAME=u55c -DUNIT_TEST_DIR="$COYOTE/sim/unit_test/examples"
+# The Python tests of an example are in sim/unit_test/examples/<example folder>, if it has any.
+"$COYOTE/sim/vl/configure.sh" "$HW" "$WORK" -DFDEV_NAME=u55c \
+    -DUNIT_TEST_DIR="$COYOTE/sim/unit_test/examples/$(basename "$(dirname "$HW")")"
 "$COYOTE/sim/vl/build.sh" "$WORK" "$WORK/vl_cpp"
 
 cmake -S "$SW" -B "$WORK/sw" -DEN_SIM=ON

@@ -24,171 +24,149 @@
 # SOFTWARE.
 ######################################################################################
 
-# A work-flow for running the Coyote software examples in simulation under Verilator (sim/vl/build.sh),
-# next to run_simulation.yaml (xsim). Vivado still writes the simulation project (make sim); Verilator runs it.
+# A work-flow for running the Coyote examples in simulation under Verilator on a GitHub-hosted runner.
 name: Run simulation with Verilator
 
 on:
+  push:
+    branches: [features/system-sim, master]
   pull_request:
     branches:
     - master
+  workflow_dispatch:
+
+concurrency:
+  group: simulation-verilator-${{ github.ref }}
+  cancel-in-progress: true
 
 defaults:
   run:
-    shell: bash -ileo pipefail {0}
+    shell: bash
 
 jobs:
-  # The pinned Verilator once per runner, before the example jobs run their install step in parallel
   verilator:
-    environment: fpga-synth
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    # The install prefix and the cache key, for the example jobs
+    outputs:
+      prefix: ${{ steps.pin.outputs.prefix }}
+      key: ${{ steps.pin.outputs.key }}
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Verilator
+    - name: Pin
+      id: pin
       run: |
         source sim/vl/verilator.env
-        sim/vl/install_verilator.sh $HOME/opt/verilator/$VERILATOR_REF   # does nothing when the prefix holds it
+        echo "prefix=$HOME/opt/verilator/$VERILATOR_REF" >> $GITHUB_OUTPUT
+        echo "key=verilator-ubuntu-22.04-${{ hashFiles('sim/vl/verilator.env') }}" >> $GITHUB_OUTPUT
 
-  run-01-hello-world:
-    environment: fpga-synth
-    runs-on: [self-hosted, linux, x64]
+    - name: Verilator cache
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ~/opt/verilator
+        key: ${{ steps.pin.outputs.key }}
+
+    - name: Build Verilator
+      if: steps.cache.outputs.cache-hit != 'true'
+      run: sudo PREFIX=${{ steps.pin.outputs.prefix }} sim/container/install.sh --deps
+
+  example:
+    name: ${{ matrix.example }}
     needs: verilator
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # host_args: empty runs the program once without arguments
+        include:
+        - example: 01_hello_world
+          host_args: |
+            -X 1024 -r 1 -s 0
+            -X 1024 -r 1 -s 1
+        - example: 04_user_interrupts
+          host_args: ''
+        - example: 07_perf_fpga
+          host_args: |
+            -X 1024 -r 1 -o 0
+            -X 1024 -r 1 -o 1
+        - example: 12_spinal_hdl
+          host_args: ''
+    env:
+      EX: ${{ matrix.example }}
+      VERILATOR_PREFIX: ${{ needs.verilator.outputs.prefix }}
 
     steps:
     - uses: actions/checkout@v4
 
     - name: Environment set-up
-      run:
-        mkdir examples/01_hello_world/build_sim && mkdir examples/01_hello_world/build_sw && sudo apt-get install libboost-all-dev
-
-    - name: Verilator
       run: |
-        source sim/vl/verilator.env   # the pin: VERILATOR_REF
-        sim/vl/install_verilator.sh $HOME/opt/verilator/$VERILATOR_REF   # does nothing when the prefix holds it
-        echo "$HOME/opt/verilator/$VERILATOR_REF/bin" >> $GITHUB_PATH
+        echo "WORK=$RUNNER_TEMP/work" >> $GITHUB_ENV
+        echo "$VERILATOR_PREFIX/bin" >> $GITHUB_PATH
 
-    - name: Make simulation project
-      run:
-        cd examples/01_hello_world/build_sim && cmake -DFDEV_NAME=u55c -DUNIT_TEST_DIR=$GITHUB_WORKSPACE/sim/unit_test/examples ../hw && make sim
+    - name: Verilator cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/opt/verilator
+        key: ${{ needs.verilator.outputs.key }}
 
-    - name: Make software project
-      run:
-        cd examples/01_hello_world/build_sw && cmake ../sw -DEN_SIM=ON && make
+    - name: Packages
+      run: sudo PREFIX=$VERILATOR_PREFIX sim/container/install.sh --deps
 
-    - name: Build the testbench with Verilator
-      run:
-        sim/vl/build.sh examples/01_hello_world/build_sim examples/01_hello_world/build_vl
+    # Example 12: comp_spinal.tcl (run by sim/vl/configure.sh) needs sbt and Java 11 or newer
+    - name: Java
+      if: matrix.example == '12_spinal_hdl'
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+        cache: sbt
+
+    - name: sbt
+      if: matrix.example == '12_spinal_hdl'
+      uses: sbt/setup-sbt@v1
+
+    - name: Build the testbench and the host program
+      run: PREFIX=$VERILATOR_PREFIX sim/container/install.sh $PWD examples/$EX/hw $WORK examples/$EX/sw
 
     - name: Run simulation
+      env:
+        HOST_ARGS: ${{ matrix.host_args }}
       run: |
-        COYOTE_SIM_BIN=$PWD/examples/01_hello_world/build_vl/coyote_vl COYOTE_SIM_DIR=examples/01_hello_world/build_sim/ examples/01_hello_world/build_sw/test -X 1024 -r 1 -s 0
-        COYOTE_SIM_BIN=$PWD/examples/01_hello_world/build_vl/coyote_vl COYOTE_SIM_DIR=examples/01_hello_world/build_sim/ examples/01_hello_world/build_sw/test -X 1024 -r 1 -s 1
+        mapfile -t RUNS < <(grep -v '^\s*$' <<< "$HOST_ARGS" || true)
+        [ ${#RUNS[@]} -gt 0 ] || RUNS=("")
+        cd $WORK/sw
+        for args in "${RUNS[@]}"; do
+          echo "== ./test $args"
+          COYOTE_SIM_BIN=$WORK/vl_cpp/coyote_vl COYOTE_SIM_DIR=$WORK ./test $args 2>&1 | tee -a $WORK/host.log
+        done
+
+    # The value comes from vfpga_top.svh of example 4 and reaches the callback of sw/src/main.cpp through the simulation cThread
+    - name: Check the interrupt value
+      if: matrix.example == '04_user_interrupts'
+      run: |
+        n=$(grep -c "The interrupt received a value: 73" $WORK/host.log || true)
+        echo "interrupt callbacks with value 73: $n (expected 1)"
+        [ "$n" = 1 ]
 
     - name: Run the Python tests under Verilator
+      if: hashFiles(format('sim/unit_test/examples/{0}/test_*.py', matrix.example)) != ''
       run:
-        COYOTE_SIM_VERILATOR=1 PYTHONPATH=$PWD/examples/01_hello_world/build_sim:$PWD/sim python3 -m unittest discover -v -s sim/unit_test/examples
+        COYOTE_SIM_VERILATOR=1 PYTHONPATH=$WORK:$PWD/sim python3 -m unittest discover -v -s sim/unit_test/examples/$EX
 
-  run-02-hls-vadd:
-    environment: fpga-synth
-    runs-on: [self-hosted, linux, x64]
-    needs: verilator
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Environment set-up
-      run:
-        mkdir examples/02_hls_vadd/build_sim && mkdir examples/02_hls_vadd/build_sw && sudo apt-get install libboost-all-dev
-
-    - name: Verilator
-      run: |
-        source sim/vl/verilator.env   # the pin: VERILATOR_REF
-        sim/vl/install_verilator.sh $HOME/opt/verilator/$VERILATOR_REF   # does nothing when the prefix holds it
-        echo "$HOME/opt/verilator/$VERILATOR_REF/bin" >> $GITHUB_PATH
-
-    - name: Make simulation project
-      run:
-        cd examples/02_hls_vadd/build_sim && cmake -DFDEV_NAME=u55c ../hw && make sim
-
-    - name: Make software project
-      run:
-        cd examples/02_hls_vadd/build_sw && cmake ../sw -DEN_SIM=ON && make
-
-    - name: Build the testbench with Verilator
-      run:
-        sim/vl/build.sh examples/02_hls_vadd/build_sim examples/02_hls_vadd/build_vl
-
-    - name: Run simulation
-      run: |
-        COYOTE_SIM_BIN=$PWD/examples/02_hls_vadd/build_vl/coyote_vl COYOTE_SIM_DIR=examples/02_hls_vadd/build_sim/ examples/02_hls_vadd/build_sw/test
-
-  run-04-user-interrupts:
-    environment: fpga-synth
-    runs-on: [self-hosted, linux, x64]
-    needs: verilator
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Environment set-up
-      run:
-        mkdir examples/04_user_interrupts/build_sim && mkdir examples/04_user_interrupts/build_sw && sudo apt-get install libboost-all-dev
-
-    - name: Verilator
-      run: |
-        source sim/vl/verilator.env   # the pin: VERILATOR_REF
-        sim/vl/install_verilator.sh $HOME/opt/verilator/$VERILATOR_REF   # does nothing when the prefix holds it
-        echo "$HOME/opt/verilator/$VERILATOR_REF/bin" >> $GITHUB_PATH
-
-    - name: Make simulation project
-      run:
-        cd examples/04_user_interrupts/build_sim && cmake -DFDEV_NAME=u55c ../hw && make sim
-
-    - name: Make software project
-      run:
-        cd examples/04_user_interrupts/build_sw && cmake ../sw -DEN_SIM=ON && make
-
-    - name: Build the testbench with Verilator
-      run:
-        sim/vl/build.sh examples/04_user_interrupts/build_sim examples/04_user_interrupts/build_vl
-
-    - name: Run simulation
-      run: |
-        COYOTE_SIM_BIN=$PWD/examples/04_user_interrupts/build_vl/coyote_vl COYOTE_SIM_DIR=examples/04_user_interrupts/build_sim/ examples/04_user_interrupts/build_sw/test
-
-  run-07-perf-fpga:
-    environment: fpga-synth
-    runs-on: [self-hosted, linux, x64]
-    needs: verilator
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Environment set-up
-      run:
-        mkdir examples/07_perf_fpga/build_sim && mkdir examples/07_perf_fpga/build_sw && sudo apt-get install libboost-all-dev
-
-    - name: Verilator
-      run: |
-        source sim/vl/verilator.env   # the pin: VERILATOR_REF
-        sim/vl/install_verilator.sh $HOME/opt/verilator/$VERILATOR_REF   # does nothing when the prefix holds it
-        echo "$HOME/opt/verilator/$VERILATOR_REF/bin" >> $GITHUB_PATH
-
-    - name: Make simulation project
-      run:
-        cd examples/07_perf_fpga/build_sim && cmake -DFDEV_NAME=u55c ../hw && make sim
-
-    - name: Make software project
-      run:
-        cd examples/07_perf_fpga/build_sw && cmake ../sw -DEN_SIM=ON && make
-
-    - name: Build the testbench with Verilator
-      run:
-        sim/vl/build.sh examples/07_perf_fpga/build_sim examples/07_perf_fpga/build_vl
-
-    - name: Run simulation
-      run: |
-        COYOTE_SIM_BIN=$PWD/examples/07_perf_fpga/build_vl/coyote_vl COYOTE_SIM_DIR=examples/07_perf_fpga/build_sim/ examples/07_perf_fpga/build_sw/test -X 1024 -r 1 -o 0
-        COYOTE_SIM_BIN=$PWD/examples/07_perf_fpga/build_vl/coyote_vl COYOTE_SIM_DIR=examples/07_perf_fpga/build_sim/ examples/07_perf_fpga/build_sw/test -X 1024 -r 1 -o 1
+    - name: Logs
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: logs-${{ matrix.example }}
+        if-no-files-found: ignore
+        path: |
+          ${{ env.WORK }}/*.log
+          ${{ env.WORK }}/vl_cpp/build.log
+          ${{ env.WORK }}/vl/build.log
+          ${{ env.WORK }}/sim/coyote_vl.log
+          ${{ env.WORK }}/*_config_0/user_c0_0/hdl/ext/*_spinal/sbt_compile.log
+          sim/unit_test/examples/${{ matrix.example }}/diff
